@@ -201,6 +201,7 @@ def create_app():
             'apiKeyConfigured': bool(config.api_key),
             'providers': registered,
             'selftest': '/scenes/selftest?q=<title>',
+            'cache': tpdb.cache_stats(),
         })
 
     @app.errorhandler(400)

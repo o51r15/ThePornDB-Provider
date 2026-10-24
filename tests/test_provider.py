@@ -1,4 +1,4 @@
-import importlib, json, os, sys, unittest
+import importlib, json, os, sys, time, unittest
 from unittest import mock
 
 os.environ.update({
@@ -393,6 +393,67 @@ class MatchPagingTests(unittest.TestCase):
 
     def test_offset_is_echoed(self):
         self.assertEqual(self._page(5, 5)['offset'], 5)
+
+
+class CacheBoundsTests(unittest.TestCase):
+    """The response cache must stay bounded.
+
+    It was a plain dict that only dropped an entry when that same key was
+    read again after expiry, so anything fetched once and never re-read
+    was held for the life of the process.
+    """
+
+    def setUp(self):
+        os.environ['TPDB_CACHE_TTL'] = '3600'
+        os.environ['TPDB_CACHE_MAX_ENTRIES'] = '100'
+        importlib.reload(config_mod)
+        importlib.reload(tpdb)
+
+    def tearDown(self):
+        os.environ.pop('TPDB_CACHE_MAX_ENTRIES', None)
+        os.environ['TPDB_CACHE_TTL'] = '0'
+        importlib.reload(config_mod)
+        importlib.reload(tpdb)
+
+    def test_cache_never_exceeds_the_cap(self):
+        for i in range(5000):
+            tpdb._cache_put(('http://x/%d' % i, ()), {'data': [{'id': i}] * 50})
+        self.assertLessEqual(len(tpdb._cache), 100)
+
+    def test_newest_survives_and_oldest_is_evicted(self):
+        for i in range(500):
+            tpdb._cache_put(('k%d' % i, ()), i)
+        self.assertIsNotNone(tpdb._cache_get(('k499', ())))
+        self.assertIsNone(tpdb._cache_get(('k0', ())))
+
+    def test_a_reread_entry_survives_eviction(self):
+        for i in range(100):
+            tpdb._cache_put(('k%d' % i, ()), i)
+        tpdb._cache_get(('k0', ()))                 # touch the oldest
+        for i in range(100, 150):
+            tpdb._cache_put(('k%d' % i, ()), i)
+        self.assertIsNotNone(tpdb._cache_get(('k0', ())),
+                             'LRU did not protect a recently read entry')
+
+    def test_expired_entries_go_without_being_reread(self):
+        tpdb.config.cache_ttl = 1
+        tpdb._last_sweep = 0.0
+        for i in range(50):
+            tpdb._cache_put(('e%d' % i, ()), i)
+        self.assertEqual(len(tpdb._cache), 50)
+        time.sleep(1.2)
+        tpdb._cache_put(('trigger', ()), 1)
+        self.assertLessEqual(len(tpdb._cache), 2)
+
+    def test_ttl_zero_still_disables_caching(self):
+        tpdb.config.cache_ttl = 0
+        tpdb._cache_put(('z', ()), 1)
+        self.assertEqual(len(tpdb._cache), 0)
+        self.assertIsNone(tpdb._cache_get(('z', ())))
+
+    def test_values_round_trip(self):
+        tpdb._cache_put(('round', ()), {'data': [1, 2, 3]})
+        self.assertEqual(tpdb._cache_get(('round', ())), {'data': [1, 2, 3]})
 
 
 if __name__ == '__main__':

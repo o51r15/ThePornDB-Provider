@@ -25,6 +25,11 @@ class Config(object):
     timeout = int(_str('TPDB_TIMEOUT', '30'))
     retries = int(_str('TPDB_RETRIES', '3'))
     cache_ttl = int(_str('TPDB_CACHE_TTL', '3600'))
+    # Hard ceiling on cached upstream responses. A site page holds up to
+    # TPDB_SITE_PAGE_SIZE scenes, so this bounds memory; without a cap the
+    # cache only ever dropped an entry when that exact key was requested
+    # again after expiry, and grew for the life of the process.
+    cache_max_entries = int(_str('TPDB_CACHE_MAX_ENTRIES', '1000'))
 
     # --- provider identity ---
     identifier = _str('TPDB_IDENTIFIER', 'tv.plex.agents.custom.theporndb.scenes')

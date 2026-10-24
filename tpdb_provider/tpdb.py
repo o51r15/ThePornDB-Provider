@@ -1,4 +1,5 @@
 """Thin client for the ThePornDB API."""
+import collections
 import logging
 import re
 import threading
@@ -12,30 +13,61 @@ from .config import config
 log = logging.getLogger(__name__)
 
 _local = threading.local()
-_cache = {}
+# LRU, so the cache can be bounded. A plain dict only ever dropped an entry
+# when that same key was read again after expiry, so anything fetched once
+# and never re-read was held for the life of the process - and the TV path
+# caches whole site pages.
+_cache = collections.OrderedDict()
 _cache_lock = threading.Lock()
+_last_sweep = 0.0
+
+
+def _sweep(now):
+    """Drop every expired entry. Caller holds the lock."""
+    global _last_sweep
+    _last_sweep = now
+    cutoff = now - config.cache_ttl
+    for key in [k for k, (ts, _) in _cache.items() if ts <= cutoff]:
+        _cache.pop(key, None)
+
+
+def cache_stats():
+    with _cache_lock:
+        return {'entries': len(_cache), 'maxEntries': config.cache_max_entries,
+                'ttl': config.cache_ttl}
 
 
 def _cache_get(key):
     if config.cache_ttl <= 0:
         return None
+    now = time.time()
     with _cache_lock:
         hit = _cache.get(key)
-    if not hit:
-        return None
-    ts, value = hit
-    if time.time() - ts > config.cache_ttl:
-        with _cache_lock:
+        if not hit:
+            return None
+        ts, value = hit
+        if now - ts > config.cache_ttl:
             _cache.pop(key, None)
-        return None
+            return None
+        _cache.move_to_end(key)
     return value
 
 
 def _cache_put(key, value):
     if config.cache_ttl <= 0:
         return
+    now = time.time()
+    cap = max(1, config.cache_max_entries)
     with _cache_lock:
-        _cache[key] = (time.time(), value)
+        _cache[key] = (now, value)
+        _cache.move_to_end(key)
+        # Expired entries go even while idle, not only when re-read.
+        if now - _last_sweep > config.cache_ttl:
+            _sweep(now)
+        if len(_cache) > cap:
+            _sweep(now)
+            while len(_cache) > cap:
+                _cache.popitem(last=False)
 
 
 def _get_session():
