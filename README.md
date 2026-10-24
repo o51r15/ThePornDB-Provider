@@ -4,7 +4,7 @@
 
 **Plex metadata provider for ThePornDB — scenes, movies and JAV, identified from your filenames.**
 
-The successor to [ThePornDB.bundle](https://github.com/ThePornDatabase/ThePornDB.bundle). Plex Media Server 1.43 removed the plug-in framework every `.bundle` agent depended on; this is the same behaviour reimplemented against Plex's new HTTP metadata provider API.
+The successor to [ThePornDB.bundle](https://github.com/ThePornDatabase/ThePornDB.bundle), rebuilt as an HTTP service against the custom metadata provider API that Plex shipped in PMS 1.43.0 — the replacement Plex built so that agents like the bundle could stop depending on the retired Plug-ins system.
 
 [![GitHub last commit](https://img.shields.io/github/last-commit/o51r15/ThePornDB.bundle)](https://github.com/o51r15/ThePornDB.bundle)
 [![Build](https://img.shields.io/github/actions/workflow/status/o51r15/ThePornDB.bundle/build.yml?label=build)](https://github.com/o51r15/ThePornDB.bundle/actions)
@@ -16,7 +16,7 @@ The successor to [ThePornDB.bundle](https://github.com/ThePornDatabase/ThePornDB
 
 ---
 
-> **Why this exists** — PMS 1.43 dropped plug-in agents, so ThePornDB.bundle and every fork of it stopped loading. Plex's replacement is a REST API: a provider is an external HTTP service the server queries, not Python 2 running inside it. The matching logic, preference set and TPDB field mapping here are ported from the bundle, so the behaviour you had is intact — the dead scaffolding is gone.
+> **Why this exists** — Plex removed the Plug-ins system from PMS years ago but kept the legacy metadata agents running, in their words, "until we had a suitable replacement for those." That replacement arrived in **PMS 1.43.0**: a metadata provider is now an HTTP API the server queries, using [the same API as Plex's own Movie and Series agents](https://forums.plex.tv/t/announcement-custom-metadata-providers/934384). The same release also stops showing legacy agents when you create a library, and Plex has said it plans "to completely remove the legacy agents system from new PMS releases in 2026," telling agent maintainers "it would be a great time to hop in and implement your agent using the new metadata provider method." This is that migration for ThePornDB: the matching logic, preference set and TPDB field mapping are ported from the bundle, so the behaviour you had is intact — it just runs beside Plex instead of inside it.
 
 ## What It Does
 
@@ -63,7 +63,7 @@ Verify: **http://your-server:8080/scenes** — a `MediaProvider` document comes 
 
 > **Updating:** `docker compose pull && docker compose up -d`
 
-> **Security:** Plex sends custom providers **unauthenticated** requests. Keep this on your LAN until Plex ships provider auth.
+> **Security:** Plex sends custom providers **unauthenticated** requests — provider auth is not implemented yet. Plex calls this "fine for development or local-only hosting" and advises waiting before publishing a public API. Keep this on your LAN.
 
 ### Docker Compose File
 
@@ -175,7 +175,7 @@ Register `/tv` against a **TV Shows** library and each site becomes a show, each
 
 **Read this before committing to it.** TPDB scenes have no episode number, so `/tv` derives one from the air date: `2019-01-25` becomes **S2019E0125**. Stable, ordered, unique within a site-year; two scenes from the same site on the same day share an index but stay distinct by GUID.
 
-The catch is Plex's side, not the provider's. **Plex's TV scanner will not number typical scene filenames** — it reads the date but assigns no season or episode, so they land in `[Unknown Season]` and can never bind:
+The catch is Plex's side, and it is by design, not an oversight: the old Python plug-ins could hook the scanner, and Plex has stated there is "no plan currently" to offer that in the new API. So **Plex's TV scanner will not number typical scene filenames** — it reads the date but assigns no season or episode, so they land in `[Unknown Season]` and can never bind:
 
 | Filename | Plex scanner result |
 |---|---|
@@ -222,6 +222,7 @@ Undocumented behaviour that cost real debugging time, recorded so the next perso
 - **Hint keys are not consistent.** The same field arrives as `title` or `name`, `filename` or `file`, depending on library type. Reading one spelling only makes every lookup answer with an empty container, and Plex logs `Primary provider … failed to return a result, skipping item` and silently reverts the library to its built-in agent.
 - **Plex never sends a `type: 4` episode match.** It matches the show, then the season with `includeChildren=1`, and binds files to the children in that response. A season returned without its episodes binds nothing.
 - **Its scanner falls back to season 1** when it can't parse a season from the filename, so the provider recovers the year from any date it can find in the name.
+- **A provider cannot influence scanning at all.** Plex, on the new API: "There is no plan currently for hooking into the scanner like the old Python plug-ins did." Whatever season and episode the scanner assigns is what a provider has to bind against — which is the entire reason `/tv` needs renamed files and `/scenes` does not.
 - **A refresh never re-matches.** `local://` stubs are permanent until a fresh scan or a manual Fix Match.
 
 ## Docker Images
@@ -245,7 +246,7 @@ Upstream is stubbed, so no token is needed. They cover the manifest shape, every
 
 ## Requirements
 
-- **Plex Media Server 1.43.0+** — custom metadata providers do not exist before this
+- **Plex Media Server 1.43.0+** — the release that introduced custom metadata providers; there is no way to register one on an earlier server
 - **A ThePornDB API token** — from your account settings at [theporndb.net](https://theporndb.net/)
 - **Docker**, or **Python 3.9+** to run from source
 - Network reachability from the Plex server to this service
