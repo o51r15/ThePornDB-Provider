@@ -19,3 +19,6 @@ venv/
 CLAUDE.md
 DEVLOG.md
 ROADMAP.md
+
+# Local deployment pin
+docker-compose.override.yml

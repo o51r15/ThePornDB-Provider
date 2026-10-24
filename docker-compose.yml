@@ -1,6 +1,10 @@
 services:
   tpdb-provider:
-    image: ghcr.io/o51r15/tpdb-provider:dev
+    # :latest follows the newest tagged release.
+    # Pin to an exact version in production, e.g. ghcr.io/o51r15/tpdb-provider:1.0.0
+    # Note the image tags carry no "v" prefix even though the git tags do.
+    # :dev is the development stream and will break.
+    image: ghcr.io/o51r15/tpdb-provider:latest
     container_name: tpdb-provider
     restart: unless-stopped
     ports:
