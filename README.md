@@ -6,11 +6,12 @@
 
 The successor to [ThePornDB.bundle](https://github.com/ThePornDatabase/ThePornDB.bundle), rebuilt as an HTTP service against the custom metadata provider API that Plex shipped in PMS 1.43.0 — the replacement Plex built so that agents like the bundle could stop depending on the retired Plug-ins system.
 
-[![GitHub last commit](https://img.shields.io/github/last-commit/o51r15/ThePornDB.bundle)](https://github.com/o51r15/ThePornDB.bundle)
-[![Build](https://img.shields.io/github/actions/workflow/status/o51r15/ThePornDB.bundle/build.yml?label=build)](https://github.com/o51r15/ThePornDB.bundle/actions)
-[![GHCR](https://img.shields.io/badge/ghcr.io-tpdb--provider-blue?logo=docker&logoColor=white)](https://github.com/o51r15/ThePornDB.bundle/pkgs/container/tpdb-provider)
+[![GitHub last commit](https://img.shields.io/github/last-commit/o51r15/ThePornDB-Provider)](https://github.com/o51r15/ThePornDB-Provider)
+[![Build](https://img.shields.io/github/actions/workflow/status/o51r15/ThePornDB-Provider/build.yml?label=build)](https://github.com/o51r15/ThePornDB-Provider/actions)
+[![GHCR](https://img.shields.io/badge/ghcr.io-tpdb--provider-blue?logo=docker&logoColor=white)](https://github.com/o51r15/ThePornDB-Provider/pkgs/container/tpdb-provider)
 [![Plex](https://img.shields.io/badge/plex-1.43%2B-e5a00d.svg)](https://www.plex.tv/)
 [![Python](https://img.shields.io/badge/python-3.9%2B-3776ab.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 </div>
 
@@ -48,7 +49,7 @@ One container serves four providers off separate paths, so a single deployment c
 # 1. Create your compose file
 mkdir -p ~/tpdb-provider
 curl -o ~/tpdb-provider/docker-compose.yml \
-  https://raw.githubusercontent.com/o51r15/ThePornDB.bundle/main/docker-compose.yml
+  https://raw.githubusercontent.com/o51r15/ThePornDB-Provider/main/docker-compose.yml
 
 # 2. Add your TPDB token
 cd ~/tpdb-provider
@@ -84,7 +85,7 @@ services:
 ### From Source
 
 ```bash
-git clone https://github.com/o51r15/ThePornDB.bundle.git && cd ThePornDB.bundle
+git clone https://github.com/o51r15/ThePornDB-Provider.git && cd ThePornDB-Provider
 pip install -r requirements.txt
 cp .env.example .env                        # add your TPDB_API_KEY
 TPDB_API_KEY=... python3 wsgi.py            # dev
@@ -116,114 +117,65 @@ Repeat with `http://your-server:8080/movies` for a full-length movie library. Ea
 
 ## Configuration
 
-Everything is environment variables — the provider API has no Plex-side preferences pane, so the bundle's `DefaultPrefs.json` moved to `.env`.
+Everything is environment variables — the provider API has no Plex-side
+preferences pane, so the bundle's `DefaultPrefs.json` moved to `.env`.
 
 | Variable | Bundle preference | Default | Description |
 |---|---|---|---|
 | `TPDB_API_KEY` | `personal_api_key` | — | **Required.** Token from your theporndb.net account settings |
-| `TPDB_API_BASE` | — | `https://api.theporndb.net` | Upstream base URL |
-| `TPDB_TIMEOUT` | — | `30` | Upstream request timeout, seconds |
-| `TPDB_RETRIES` | — | `3` | Upstream retry attempts |
-| `TPDB_CACHE_TTL` | — | `3600` | Response cache lifetime, seconds; `0` disables |
-| `TPDB_IDENTIFIER` | — | `tv.plex.agents.custom.theporndb.scenes` | Must start with `tv.plex.agents.custom.` |
-| `TPDB_TITLE` | — | `ThePornDB Scenes` | Name Plex shows for the provider |
 | `TPDB_MOVIES_ENABLE` | — | `true` | Serve `/movies` |
-| `TPDB_MOVIES_IDENTIFIER` | — | `…theporndb.movies` | |
-| `TPDB_MOVIES_TITLE` | — | `ThePornDB Movies` | |
 | `TPDB_JAV_ENABLE` | — | `false` | Serve `/jav` |
-| `TPDB_JAV_IDENTIFIER` | — | `…theporndb.jav` | |
-| `TPDB_JAV_TITLE` | — | `ThePornDB JAV` | |
-| `TPDB_TV_IDENTIFIER` | — | `…theporndb.tv` | |
-| `TPDB_TV_TITLE` | — | `ThePornDB Scenes (TV)` | |
 | `TPDB_MATCH_BY_FILENAME` | `match_by_filepath_enable` | `true` | Use the filename rather than Plex's cleaned title |
-| `TPDB_STRIP_PATH` | `filepath_strip_path_enable` | `true` | Search the basename, not the full path |
-| `TPDB_CLEANUP_ENABLE` | `filepath_cleanup_enable` | `false` | Apply the cleanup regexes below |
-| `TPDB_CLEANUP_REGEX` | `filepath_cleanup` | — | Comma-separated regexes stripped before searching |
-| `TPDB_CLEANUP_REPLACE` | `filepath_replace` | — | Replacement for the above |
-| `TPDB_SCORE_METHOD` | `score_method` | `default` | `default` or `custom` |
-| `TPDB_CUSTOM_SCORE` | `custom_score` | `{site} {date} {title}` | Levenshtein target when `custom` |
-| `TPDB_MAX_RESULTS` | — | `20` | Matches returned per request |
-| `TPDB_MAX_PAGE_SIZE` | — | `500` | Ceiling on a client-requested page size |
-| `TPDB_OSHASH_ENABLE` | `oshash_matching_enable` | `false` | Leave off — see below |
+| `TPDB_CLEANUP_ENABLE` | `filepath_cleanup_enable` | `false` | Apply cleanup regexes before searching |
+| `TPDB_OSHASH_ENABLE` | `oshash_matching_enable` | `false` | Leave off — Plex's own hash makes TPDB 422 the whole call |
 | `TPDB_CUSTOM_TITLE_ENABLE` | `custom_title_enable` | `false` | Rewrite item titles |
-| `TPDB_CUSTOM_TITLE` | `custom_title` | `{actors} - {title} [{studio}/{series}]` | |
-| `TPDB_CONTENT_RATING` | — | `XXX` | |
-| `TPDB_COLLECTIONS_FROM_SITE` | `collections_from_site` | `true` | |
-| `TPDB_COLLECTIONS_FROM_PARENTS` | `collections_from_parents` | `true` | |
-| `TPDB_COLLECTIONS_FROM_NETWORKS` | `collections_from_networks` | `true` | |
-| `TPDB_COLLECTIONS_FROM_TAGS` | `create_all_tag_collection_tags` | `false` | |
-| `TPDB_COLLECTION_SITE_PREFIX` | `collection_site_prefix` | — | Also `_PARENT_` and `_NETWORK_` |
-| `TPDB_SAVE_TO_COLLECTION` | `save_to_collection` | `false` | Marks scenes collected on TPDB |
-| `TPDB_SITE_PAGE_SIZE` | — | `100` | Upstream max is 100; higher returns empty |
-| `TPDB_MAX_SITE_PAGES` | — | `60` | 6000 scenes per site |
-| `TPDB_SITE_FETCH_WORKERS` | — | `8` | Concurrent page fetches |
+| `TPDB_COLLECTIONS_FROM_SITE` | `collections_from_site` | `true` | Also `_PARENTS_`, `_NETWORKS_`, `_TAGS_` |
+| `TPDB_CACHE_TTL` | — | `3600` | Response cache lifetime, seconds; `0` disables |
 | `TPDB_LOG_LEVEL` | `logging_level` | `INFO` | `DEBUG` logs the hints Plex sends |
 
-### About `TPDB_OSHASH_ENABLE`
-
-Leave it off unless your files genuinely carry OpenSubtitles hashes. Plex puts its **own** hash in every match request, and TPDB rejects any `hash` that isn't 16 hex digits by failing the entire call:
-
-```
-422 {"message":"The hash must be valid hash.","errors":{"hash":["The hash must be valid hash."]}}
-```
-
-Forwarding it blindly returned empty results for every file in the library. The provider now only sends a hash matching `^[0-9a-fA-F]{16}$`, and only when this is enabled.
+**[Full configuration reference →](https://github.com/o51r15/ThePornDB-Provider/wiki/Configuration)** — all 38 variables,
+each mapped to the bundle preference it replaces.
 
 ## TV Provider
 
-Register `/tv` against a **TV Shows** library and each site becomes a show, each release year a season, each scene an episode.
+Register `/tv` against a **TV Shows** library and each site becomes a show,
+each release year a season, each scene an episode (`2019-01-25` → **S2019E0125**).
 
-**Read this before committing to it.** TPDB scenes have no episode number, so `/tv` derives one from the air date: `2019-01-25` becomes **S2019E0125**. Stable, ordered, unique within a site-year; two scenes from the same site on the same day share an index but stay distinct by GUID.
+**It requires renaming your library first.** Plex's TV scanner will not assign
+a season or episode to typical scene filenames, so they land in
+`[Unknown Season]` and can never bind. This is Plex's side, by design — the old
+Python plug-ins could hook the scanner and Plex has stated there is "no plan
+currently" to offer that in the new API. The included
+`tools/rename_for_plex.py` converts a library to the one form the scanner
+parses, resolving each file against TPDB for the real title, dry run by default.
 
-The catch is Plex's side, and it is by design, not an oversight: the old Python plug-ins could hook the scanner, and Plex has stated there is "no plan currently" to offer that in the new API. So **Plex's TV scanner will not number typical scene filenames** — it reads the date but assigns no season or episode, so they land in `[Unknown Season]` and can never bind:
+**If renaming isn't something you want to do, use `/scenes`.** It matches on
+filename alone and has none of this constraint, which is why it's the drop-in
+replacement for the old Scenes bundle.
 
-| Filename | Plex scanner result |
-|---|---|
-| `Show - 2019-01-18 - Title [WEBDL-1080p].mkv` | no index, no season |
-| `Show.24.06.27.performer.XXX.mkv` | season 1, arbitrary episode |
-| `Show - S2019E0118 - Title.mkv` | **index 118, season 2019** |
-
-The included renamer converts a library to the third form, looking each file up in TPDB so the title is authoritative rather than parsed:
-
-```bash
-python3 tools/rename_for_plex.py '/path/to/Scenes'              # dry run + TSV report
-python3 tools/rename_for_plex.py '/path/to/Scenes' --apply
-python3 tools/rename_for_plex.py '/path/to/Scenes' --only 'Baby Got Boobs'
-```
-
-It handles ISO dates, `YY.MM.DD` release style and `DD.MM.YYYY`, skips names already in `S##E##` form, and refuses to guess — same-day collisions it can't resolve from the filename are reported as `AMBIGUOUS` and left alone.
-
-**If renaming isn't something you want to do, use `/scenes`.** It matches on filename alone and has none of this constraint, which is why it's the drop-in replacement for the old Scenes bundle.
+**[TV provider and renaming guide →](https://github.com/o51r15/ThePornDB-Provider/wiki/TV-Provider-and-Renaming)**
 
 ## Endpoints
 
-Each provider path (`/scenes`, `/movies`, `/jav`, `/tv`) exposes the same shape.
+Each provider path (`/scenes`, `/movies`, `/jav`, `/tv`) exposes the same
+shape: a manifest at the root, `POST /library/metadata/matches`, and
+`GET /library/metadata/{ratingKey}` plus `/children`, `/grandchildren`,
+`/images` and `/extras`. There is a `/selftest` per provider and a `/health`
+for liveness.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/{provider}` | Provider manifest |
-| `POST` | `/{provider}/library/metadata/matches` | Match feature |
-| `GET` | `/{provider}/library/metadata/{ratingKey}` | Metadata — `?includeChildren=1` embeds children |
-| `GET` | `/{provider}/library/metadata/{ratingKey}/children` | Seasons of a show, or episodes of a season |
-| `GET` | `/{provider}/library/metadata/{ratingKey}/grandchildren` | Every episode of a show |
-| `GET` | `/{provider}/library/metadata/{ratingKey}/images` | Artwork |
-| `GET` | `/{provider}/library/metadata/{ratingKey}/extras` | Trailers |
-| `GET` | `/{provider}/selftest?q=<title>` | Validates the live upstream contract |
-| `GET` | `/health` | Liveness |
+GUIDs follow `<identifier>://<type>/<ratingKey>`.
 
-GUIDs follow `<identifier>://<type>/<ratingKey>`. TV rating keys are prefixed `show-<siteId>`, `season-<siteId>-<year>`, `ep-<sceneUuid>`.
+**[Full endpoint reference →](https://github.com/o51r15/ThePornDB-Provider/wiki/Endpoints)**
 
 ## Notes on Plex's Provider API
 
-Undocumented behaviour that cost real debugging time, recorded so the next person doesn't repeat it:
+Plex's provider API has undocumented behaviour that costs real debugging time —
+paging that arrives as query parameters, nested containers that must be objects
+rather than arrays, hint keys that change name by library type, and the fact
+that a provider cannot influence scanning at all.
 
-- **Paging arrives as query parameters** on GETs (`?X-Plex-Container-Start=…`), not only as headers. Reading headers alone makes every page return the same slice, and Plex will happily walk offsets 0→580 receiving identical bodies.
-- **Nested containers must be objects**, never arrays — `{"size": n, "Metadata": [...]}`. This bit twice, on `Children` and again on `Extras`. An array fails the *entire* response with `failed to parse JSON response: 'object expected' at 1:NN`, where `NN` is the byte offset of the offending `[` — count to that column to find which key is wrong.
-- **Hint keys are not consistent.** The same field arrives as `title` or `name`, `filename` or `file`, depending on library type. Reading one spelling only makes every lookup answer with an empty container, and Plex logs `Primary provider … failed to return a result, skipping item` and silently reverts the library to its built-in agent.
-- **Plex never sends a `type: 4` episode match.** It matches the show, then the season with `includeChildren=1`, and binds files to the children in that response. A season returned without its episodes binds nothing.
-- **Its scanner falls back to season 1** when it can't parse a season from the filename, so the provider recovers the year from any date it can find in the name.
-- **A provider cannot influence scanning at all.** Plex, on the new API: "There is no plan currently for hooking into the scanner like the old Python plug-ins did." Whatever season and episode the scanner assigns is what a provider has to bind against — which is the entire reason `/tv` needs renamed files and `/scenes` does not.
-- **A refresh never re-matches.** `local://` stubs are permanent until a fresh scan or a manual Fix Match.
+**[Plex provider API notes →](https://github.com/o51r15/ThePornDB-Provider/wiki/Plex-Provider-API-Notes)** — each entry
+recorded from the failure it caused.
 
 ## Docker Images
 
@@ -244,6 +196,14 @@ python3 tests/test_tv.py           # 30
 
 Upstream is stubbed, so no token is needed. They cover the manifest shape, every match path, pagination via both query params and headers, the nested-container shapes, episode index derivation, hint-key resolution and hash handling.
 
+## Documentation
+
+- **[Configuration](https://github.com/o51r15/ThePornDB-Provider/wiki/Configuration)** — every environment variable, with the bundle preference it replaces
+- **[Endpoints](https://github.com/o51r15/ThePornDB-Provider/wiki/Endpoints)** — the HTTP surface each provider path exposes
+- **[TV Provider and Renaming](https://github.com/o51r15/ThePornDB-Provider/wiki/TV-Provider-and-Renaming)** — why `/tv` needs renamed files, and the bulk renamer
+- **[Plex Provider API Notes](https://github.com/o51r15/ThePornDB-Provider/wiki/Plex-Provider-API-Notes)** — undocumented behaviour, each recorded from a real failure
+- **[Troubleshooting](https://github.com/o51r15/ThePornDB-Provider/wiki/Troubleshooting)** — start here when nothing matches
+
 ## Requirements
 
 - **Plex Media Server 1.43.0+** — the release that introduced custom metadata providers; there is no way to register one on an earlier server
@@ -253,14 +213,15 @@ Upstream is stubbed, so no token is needed. They cover the manifest shape, every
 
 ## Tech Stack
 
-Python 3.9+ (3.12 in the image), Flask blueprints, gunicorn, `requests` with a thread-local session and `ThreadPoolExecutor` paging, Alpine (Docker), GitHub Actions → GHCR
+Python 3.9+ (`python:3.12-slim` in the image), Flask blueprints, gunicorn, `requests` with a thread-local session and `ThreadPoolExecutor` paging, GitHub Actions → GHCR
 
 ## Links
 
 - [Plex Metadata Providers API](https://developer.plex.tv/pms/) — the spec this implements
 - [ThePornDB](https://theporndb.net/) — the metadata source
-- [Issues](https://github.com/o51r15/ThePornDB.bundle/issues) — bugs and feature requests
+- [Issues](https://github.com/o51r15/ThePornDB-Provider/issues) — bugs and feature requests
 
 ## License
 
-Ported from [ThePornDB.bundle](https://github.com/ThePornDatabase/ThePornDB.bundle); the original project carries no license file, and neither does this fork.
+[MIT](LICENSE). Ported from [ThePornDB.bundle](https://github.com/ThePornDatabase/ThePornDB.bundle),
+which carries no license of its own; the MIT grant here covers this rewrite.
