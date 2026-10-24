@@ -19,6 +19,27 @@ ID_REGEXES = [
 
 _RATING_KEY_SAFE = re.compile(r'[^A-Za-z0-9_-]')
 
+# Only tokens no real title would contain. Ordinary words that happen to
+# break a query - 'Hi', 'Full' - are deliberately absent; the retry in
+# tpdb.search_scenes handles those without mangling legitimate titles.
+RELEASE_JUNK_RE = re.compile(
+    r'\b('
+    r'\d{3,4}[pi]|\d{3,4}hd|4k|uhd|hdr'                          # resolution
+    r'|x26[45]|h\.?26[45]|hevc|avc|xvid|divx|vp9'                # codec
+    r'|web-?dl|web-?rip|bd-?rip|dvd-?rip|hd-?tv|blu-?ray|hdrip'  # source
+    r'|mp4|mkv|avi|wmv|m4v|mov|flv'                              # container
+    r'|aac|ac3|dts|mp3'                                          # audio
+    r')\b', re.IGNORECASE)
+
+
+def strip_release_junk(text):
+    '''Drop release tokens that would otherwise be read as part of a title.'''
+    if not config.strip_release_junk or not text:
+        return text
+    cleaned = ' '.join(RELEASE_JUNK_RE.sub(' ', text).split())
+    # never hand back an empty query just because the name was all junk
+    return cleaned or text
+
 
 def text_of(value):
     """Coerce an upstream or hint value to a string.
@@ -140,9 +161,11 @@ def build_query(hints):
             candidate = os.path.basename(candidate)
             candidate = candidate.rsplit('.', 1)[0]
         candidate = cleanup_title(candidate)
+        candidate = strip_release_junk(candidate)
         if candidate:
             title = candidate
 
+    title = strip_release_junk(title)
     if not title:
         return ''
 

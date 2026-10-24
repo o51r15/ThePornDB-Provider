@@ -144,7 +144,7 @@ def get_json(path, params=None):
 OSHASH_RE = re.compile(r'^[0-9a-fA-F]{16}$')
 
 
-def search_scenes(query, oshash=None, kind='scenes'):
+def _search_once(query, oshash, kind):
     """`kind` picks the upstream collection: scenes, movies or jav.
 
     The old bundle shipped three near-identical agents whose only real
@@ -165,6 +165,37 @@ def search_scenes(query, oshash=None, kind='scenes'):
         log.error('upstream error: %s', body['error'])
         return []
     return body.get('data') or []
+
+
+def search_scenes(query, oshash=None, kind='scenes'):
+    """Search, retrying with trailing words dropped if nothing comes back.
+
+    TPDB's parse endpoint ignores the release tokens it knows and treats
+    the rest as title text, so one unrecognised word is the difference
+    between three results and none - 'Submissived Constance 1080p' matched
+    where 'Submissived Constance 720hd' did not. mapping.strip_release_junk
+    removes the unambiguous ones; this handles the rest, which are ordinary
+    words ('Full Hi') that cannot safely be stripped from every query.
+
+    Only runs on a miss, never trims below two words, and is bounded by
+    TPDB_MATCH_RETRY_DEPTH.
+    """
+    rows = _search_once(query, oshash, kind)
+    if rows:
+        return rows
+
+    words = (query or '').split()
+    for _ in range(max(0, config.match_retry_depth)):
+        if len(words) <= 2:
+            break
+        words = words[:-1]
+        trimmed = ' '.join(words)
+        rows = _search_once(trimmed, oshash, kind)
+        if rows:
+            log.info('no match for %r; matched after trimming to %r',
+                     query, trimmed)
+            return rows
+    return []
 
 
 def get_scene(scene_id, add_to_collection=False, kind='scenes'):

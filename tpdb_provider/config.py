@@ -79,6 +79,15 @@ class Config(object):
     # a warning; use a bounded {2,8} form instead.
     cleanup_regex = _str('TPDB_CLEANUP_REGEX')
     cleanup_replace = _str('TPDB_CLEANUP_REPLACE')
+    # TPDB's parse endpoint ignores release tokens it recognises, but any it
+    # does not are treated as part of the title and kill the match outright:
+    # 'Submissived Constance 1080p' matched, 'Submissived Constance 720hd'
+    # returned nothing at all.
+    strip_release_junk = _bool('TPDB_STRIP_RELEASE_JUNK', True)
+    # On a miss, retry with trailing words dropped. 'Full Hi' is too ordinary
+    # to strip blindly, so trimming finds it without guessing at real title
+    # words. 0 disables.
+    match_retry_depth = _int('TPDB_MATCH_RETRY_DEPTH', 3)
     max_results = _int('TPDB_MAX_RESULTS', 20)
     max_page_size = _int('TPDB_MAX_PAGE_SIZE', 500)
 

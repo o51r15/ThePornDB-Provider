@@ -553,5 +553,96 @@ class SweepTests(unittest.TestCase):
             importlib.reload(config_mod)
 
 
+class ReleaseJunkTests(unittest.TestCase):
+    """Release tokens must not be read as part of the title.
+
+    TPDB's parse endpoint ignores the tokens it recognises and treats the
+    rest as title text, so one unrecognised word decides the match:
+    'Submissived Constance 1080p' returned 3 results upstream,
+    'Submissived Constance 720hd' returned none.
+    """
+
+    def test_unambiguous_junk_is_stripped(self):
+        cases = {
+            'Submissived Constance Full Hi 720hd': 'Submissived Constance Full Hi',
+            'Scene 1080p x264 WEB-DL mkv': 'Scene',
+            'Slutty Sluts 480p HEVC': 'Slutty Sluts',
+            'Thing 2160p HDR x265 BluRay': 'Thing',
+        }
+        for raw, want in cases.items():
+            self.assertEqual(mapping.strip_release_junk(raw), want, raw)
+
+    def test_ordinary_words_are_left_alone(self):
+        # these are exactly the words too common to strip blindly
+        for text in ('Full Service', 'Hi Society', 'The 400 Blows',
+                     'Pool Party Turns Into A Fuck Fest'):
+            self.assertEqual(mapping.strip_release_junk(text), text)
+
+    def test_an_all_junk_name_is_not_emptied(self):
+        self.assertEqual(mapping.strip_release_junk('720hd'), '720hd')
+        self.assertEqual(mapping.strip_release_junk('1080p x264'), '1080p x264')
+
+    def test_build_query_strips_junk(self):
+        self.assertEqual(
+            mapping.build_query({'filename': '/x/Submissived Constance 720hd.mkv'}),
+            'Submissived Constance')
+
+    def test_it_can_be_turned_off(self):
+        mapping.config.strip_release_junk = False
+        try:
+            self.assertEqual(mapping.strip_release_junk('Scene 1080p'), 'Scene 1080p')
+        finally:
+            mapping.config.strip_release_junk = True
+
+
+class MatchRetryTests(unittest.TestCase):
+    """On a miss, retry with trailing words dropped."""
+
+    def setUp(self):
+        self.tried = []
+
+    def _upstream(self, hit):
+        def fake(path, params=None):
+            query = (params or {}).get('parse')
+            self.tried.append(query)
+            return {'data': [{'id': 'x', 'title': 'ok'}]} if query == hit else {'data': []}
+        return fake
+
+    def test_it_trims_until_something_matches(self):
+        with mock.patch.object(tpdb, 'get_json',
+                               side_effect=self._upstream('Submissived Constance')):
+            rows = tpdb.search_scenes('Submissived Constance Full Hi')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.tried, ['Submissived Constance Full Hi',
+                                      'Submissived Constance Full',
+                                      'Submissived Constance'])
+
+    def test_a_first_hit_costs_no_retries(self):
+        with mock.patch.object(tpdb, 'get_json', side_effect=self._upstream('Exact Match Here')):
+            rows = tpdb.search_scenes('Exact Match Here')
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(self.tried), 1)
+
+    def test_retries_are_bounded(self):
+        with mock.patch.object(tpdb, 'get_json', side_effect=self._upstream('never')):
+            rows = tpdb.search_scenes('One Two Three Four Five Six Seven')
+        self.assertEqual(rows, [])
+        self.assertEqual(len(self.tried), 1 + tpdb.config.match_retry_depth)
+
+    def test_it_never_trims_below_two_words(self):
+        with mock.patch.object(tpdb, 'get_json', side_effect=self._upstream('never')):
+            tpdb.search_scenes('Two Words')
+        self.assertEqual(self.tried, ['Two Words'])
+
+    def test_depth_zero_disables_it(self):
+        tpdb.config.match_retry_depth = 0
+        try:
+            with mock.patch.object(tpdb, 'get_json', side_effect=self._upstream('never')):
+                tpdb.search_scenes('One Two Three Four')
+            self.assertEqual(len(self.tried), 1)
+        finally:
+            tpdb.config.match_retry_depth = 3
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
