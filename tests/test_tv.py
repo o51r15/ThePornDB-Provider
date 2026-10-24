@@ -417,5 +417,80 @@ class TVMatchPagingTests(unittest.TestCase):
         self.assertEqual(len(seen), len(set(seen)))
 
 
+class SeasonKeyTests(unittest.TestCase):
+    """A malformed season ratingKey must 404, not 500.
+
+    make_season int()s the year, so parse_key handing back whatever
+    followed 'season-' turned a bad key into an unhandled ValueError.
+    """
+
+    def setUp(self):
+        self.app = create_app().test_client()
+        self.site = {'id': 92, 'name': 'S92'}
+        self.scenes = [{'id': 's%d' % i, 'title': 'S%d' % i,
+                        'date': '2019-05-%02d' % (i + 1),
+                        'site': {'id': 92, 'name': 'S92'}} for i in range(3)]
+
+    def _get(self, url):
+        with mock.patch.object(tpdb, 'get_site', return_value=self.site), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=self.scenes):
+            return self.app.get(url)
+
+    def test_malformed_year_404s(self):
+        for key in ('season-92-20x9', 'season-92-2019extra', 'season-92',
+                    'season--2019', 'season-92-19', 'season-'):
+            resp = self._get('/tv/library/metadata/%s' % key)
+            self.assertEqual(resp.status_code, 404, key)
+
+    def test_malformed_year_404s_on_children_too(self):
+        for key in ('season-92-20x9', 'season-92'):
+            resp = self._get('/tv/library/metadata/%s/children' % key)
+            self.assertEqual(resp.status_code, 404, key)
+
+    def test_a_valid_key_echoes_itself(self):
+        resp = self._get('/tv/library/metadata/season-92-2019')
+        item = resp.get_json()['MediaContainer']['Metadata'][0]
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(item['ratingKey'], 'season-92-2019')
+        self.assertEqual(item['index'], 2019)
+
+    def test_the_response_key_matches_the_request_not_the_site_record(self):
+        other = {'id': 999, 'name': 'Renamed'}
+        with mock.patch.object(tpdb, 'get_site', return_value=other), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=self.scenes):
+            resp = self.app.get('/tv/library/metadata/season-92-2019')
+        item = resp.get_json()['MediaContainer']['Metadata'][0]
+        self.assertEqual(item['ratingKey'], 'season-92-2019')
+
+
+class UpstreamFailureTests(unittest.TestCase):
+    """A failed site lookup must not read as a legitimately empty season.
+
+    tpdb.get_json returns None for a timeout or 5xx exactly as for a 404,
+    so answering 200 with an empty container told Plex the season really
+    was empty, and Plex stops rather than retrying.
+    """
+
+    def setUp(self):
+        self.app = create_app().test_client()
+
+    def _get(self, url):
+        with mock.patch.object(tpdb, 'get_site', return_value=None), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=[]):
+            return self.app.get(url)
+
+    def test_season_children_404_when_the_site_lookup_fails(self):
+        self.assertEqual(
+            self._get('/tv/library/metadata/season-92-2019/children').status_code, 404)
+
+    def test_grandchildren_404_when_the_site_lookup_fails(self):
+        self.assertEqual(
+            self._get('/tv/library/metadata/show-92/grandchildren').status_code, 404)
+
+    def test_show_children_already_404ed_and_still_do(self):
+        self.assertEqual(
+            self._get('/tv/library/metadata/show-92/children').status_code, 404)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

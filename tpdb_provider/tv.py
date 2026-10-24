@@ -43,10 +43,20 @@ def episode_key(scene_id):
 
 
 def parse_key(rating_key):
-    """-> (kind, site_id|scene_id, year|None)"""
+    """-> (kind, site_id|scene_id, year|None)
+
+    An unparseable key yields (None, None, None) so the route 404s.
+    make_season int()s the year, so a key like season-92-20x9 used to
+    reach it and raise, turning a bad key into a 500; and season-92 (no
+    year segment) rpartitioned into site_id='' and year='92', which
+    looked up site '' and answered with ratingKey season-92-92 - not the
+    key Plex asked for, so Plex discarded the response.
+    """
     if rating_key.startswith('season-'):
         rest = rating_key[len('season-'):]
         site_id, _, year = rest.rpartition('-')
+        if not site_id or not (len(year) == 4 and year.isdigit()):
+            return None, None, None
         return 'season', site_id, year
     if rating_key.startswith('show-'):
         return 'show', rating_key[len('show-'):], None
@@ -134,8 +144,13 @@ def site_to_show(site):
     return item
 
 
-def make_season(site, year, episode_count=None):
-    site_id = site.get('id')
+def make_season(site, year, episode_count=None, site_id=None):
+    # The caller passes the ident from the requested key, so the response
+    # echoes the ratingKey Plex asked for. Rebuilding it from site['id']
+    # meant any divergence - an alias, a redirect - produced a key Plex
+    # had not asked for and would discard.
+    if site_id is None:
+        site_id = site.get('id')
     rating_key = season_key(site_id, year)
     parent_rk = show_key(site_id)
     site_name = site.get('name') or ''
@@ -526,7 +541,7 @@ def metadata(rating_key):
         site = tpdb.get_site(ident)
         if not site:
             return jsonify({'error': 'not found'}), 404
-        item = make_season(site, year)
+        item = make_season(site, year, site_id=ident)
         if _wants_children():
             item['Children'] = children_block(
                 _episodes_for(site, ident, year))
@@ -556,10 +571,21 @@ def children(rating_key):
 
     if kind == 'season':
         site = tpdb.get_site(ident)
+        if not site:
+            # get_json returns None for a timeout or a 5xx exactly as for a
+            # 404, so without this an upstream blip came back as HTTP 200
+            # with an empty container - which Plex takes as authoritative
+            # and stops, instead of retrying as it would on an error.
+            return jsonify({'error': 'not found'}), 404
         episodes = _episodes_for(site, ident, year)
         return container(episodes[start:start + size], offset=start,
                          total=len(episodes))
 
+    if kind is None:
+        # An unparseable key is not an empty collection. Answering 200 with
+        # an empty container tells Plex the thing exists and has nothing in
+        # it, which it takes as final.
+        return jsonify({'error': 'unrecognised rating key'}), 404
     return container([], total=0)
 
 
@@ -574,10 +600,14 @@ def grandchildren(rating_key):
     kind, ident, _ = parse_key(rating_key)
     start, size = paging()
 
+    if kind is None:
+        return jsonify({'error': 'unrecognised rating key'}), 404
     if kind != 'show':
         return container([], total=0)
 
     site = tpdb.get_site(ident)
+    if not site:
+        return jsonify({'error': 'not found'}), 404
     episodes = _episodes_for(site, ident)
     return container(episodes[start:start + size], offset=start,
                      total=len(episodes))
