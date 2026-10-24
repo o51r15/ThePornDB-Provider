@@ -394,9 +394,15 @@ def _match_show(hints):
         items.append(item)
 
     items.sort(key=lambda i: i.get('score', 0), reverse=True)
+    # Truncate to the automatic-match cap BEFORE paging, and report the
+    # true size of what is on offer. The old order truncated to the page
+    # size and then sliced [start:start+size], so every page after the
+    # first came back empty while totalSize reported the truncated count -
+    # Plex was told there were 5 matches when there were 50.
     if not hints.get('manual'):
-        items = items[:size]
-    return container(items[start:start + size], offset=start, total=len(items))
+        items = items[:config.max_results]
+    total = len(items)
+    return container(items[start:start + size], offset=start, total=total)
 
 
 def _match_season(hints):
@@ -454,9 +460,15 @@ def _match_episode(hints):
         items.append(item)
 
     items.sort(key=lambda i: i.get('score', 0), reverse=True)
+    # Truncate to the automatic-match cap BEFORE paging, and report the
+    # true size of what is on offer. The old order truncated to the page
+    # size and then sliced [start:start+size], so every page after the
+    # first came back empty while totalSize reported the truncated count -
+    # Plex was told there were 5 matches when there were 50.
     if not hints.get('manual'):
-        items = items[:size]
-    return container(items[start:start + size], offset=start, total=len(items))
+        items = items[:config.max_results]
+    total = len(items)
+    return container(items[start:start + size], offset=start, total=total)
 
 
 def children_block(items):

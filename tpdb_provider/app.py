@@ -113,10 +113,15 @@ def make_provider(name, identifier, title, kind):
                  for idx, scene in enumerate(results) if isinstance(scene, dict)]
         items.sort(key=lambda i: i.get('score', 0), reverse=True)
 
+        # Truncate to the automatic-match cap BEFORE paging, and report the
+        # true size of what is on offer. The old order truncated to the page
+        # size and then sliced [start:start+size], so every page after the
+        # first came back empty while totalSize reported the truncated count -
+        # Plex was told there were 5 matches when there were 50.
         if not hints.get('manual'):
-            items = items[:size]
-        page = items[start:start + size]
-        return box(page, offset=start, total=len(items))
+            items = items[:config.max_results]
+        total = len(items)
+        return box(items[start:start + size], offset=start, total=total)
 
     @bp.route('/library/metadata/<rating_key>', methods=['GET'])
     def metadata(rating_key):

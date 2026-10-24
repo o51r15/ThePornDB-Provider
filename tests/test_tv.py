@@ -388,5 +388,34 @@ class MalformedDateTests(unittest.TestCase):
         self.assertEqual([s['id'] for s in scenes], before)
 
 
+class TVMatchPagingTests(unittest.TestCase):
+    """Show and episode matches had the same truncate-then-slice bug."""
+
+    def setUp(self):
+        self.app = create_app().test_client()
+        self.sites = [{'id': i, 'name': 'Site %02d' % i} for i in range(1, 51)]
+
+    def _page(self, start, size):
+        with mock.patch.object(tpdb, 'search_sites', return_value=self.sites):
+            resp = self.app.post(
+                '/tv/library/metadata/matches'
+                '?X-Plex-Container-Start=%d&X-Plex-Container-Size=%d' % (start, size),
+                json={'type': 2, 'title': 'Site'})
+        return resp.get_json()['MediaContainer']
+
+    def test_show_match_page_two_is_not_empty(self):
+        self.assertEqual(self._page(0, 5)['size'], 5)
+        self.assertEqual(self._page(5, 5)['size'], 5, 'page two came back empty')
+
+    def test_show_match_total_is_not_truncated(self):
+        self.assertEqual(self._page(0, 5)['totalSize'], 20)
+
+    def test_show_match_pages_do_not_repeat(self):
+        seen = []
+        for start in (0, 5, 10, 15):
+            seen += [m['ratingKey'] for m in self._page(start, 5)['Metadata']]
+        self.assertEqual(len(seen), len(set(seen)))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

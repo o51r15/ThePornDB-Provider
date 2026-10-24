@@ -1,4 +1,4 @@
-import json, os, sys, unittest
+import importlib, json, os, sys, unittest
 from unittest import mock
 
 os.environ.update({
@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from tpdb_provider import create_app
 from tpdb_provider import app
 from tpdb_provider import tpdb, mapping
+from tpdb_provider import config as config_mod
 
 SCENE = {
     'id': '0a1b2c3d-4e5f-6789-abcd-ef0123456789',
@@ -339,6 +340,59 @@ class MalformedUpstreamTests(unittest.TestCase):
 
     def setUp(self):
         self.app = app.create_app().test_client()
+
+
+class MatchPagingTests(unittest.TestCase):
+    """Paging must survive the automatic-match cap.
+
+    The cap was applied with the page size and then sliced again, so page
+    two of any match was empty and totalSize reported the truncated count.
+    """
+
+    def setUp(self):
+        os.environ['TPDB_MAX_RESULTS'] = '50'
+        importlib.reload(config_mod)
+        importlib.reload(mapping)
+        importlib.reload(app)
+        self.app = app.create_app().test_client()
+        self.results = [{'id': 'r%02d' % i, 'title': 'Scene %02d' % i,
+                         'date': '2019-01-01'} for i in range(50)]
+
+    def tearDown(self):
+        os.environ.pop('TPDB_MAX_RESULTS', None)
+        importlib.reload(config_mod)
+        importlib.reload(mapping)
+        importlib.reload(app)
+
+    def _page(self, start, size):
+        with mock.patch.object(tpdb, 'search_scenes', return_value=self.results):
+            resp = self.app.post(
+                '/scenes/library/metadata/matches'
+                '?X-Plex-Container-Start=%d&X-Plex-Container-Size=%d' % (start, size),
+                json={'type': 1, 'title': 'Scene'})
+        return resp.get_json()['MediaContainer']
+
+    def test_later_pages_are_not_empty(self):
+        first = self._page(0, 5)
+        second = self._page(5, 5)
+        third = self._page(10, 5)
+        self.assertEqual(first['size'], 5)
+        self.assertEqual(second['size'], 5, 'page two came back empty')
+        self.assertEqual(third['size'], 5)
+
+    def test_total_size_is_the_real_total(self):
+        for start in (0, 5, 10):
+            self.assertEqual(self._page(start, 5)['totalSize'], 50)
+
+    def test_pages_do_not_overlap_and_cover_the_set(self):
+        seen = []
+        for start in range(0, 50, 10):
+            seen += [m['ratingKey'] for m in self._page(start, 10)['Metadata']]
+        self.assertEqual(len(seen), 50)
+        self.assertEqual(len(set(seen)), 50)
+
+    def test_offset_is_echoed(self):
+        self.assertEqual(self._page(5, 5)['offset'], 5)
 
 
 if __name__ == '__main__':
