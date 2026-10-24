@@ -181,7 +181,7 @@ recorded from the failure it caused.
 
 | Tag | When it's built | Moves? |
 |---|---|---|
-| `ghcr.io/o51r15/tpdb-provider:dev` | Every push to `main` or `provider` | Yes — latest commit |
+| `ghcr.io/o51r15/tpdb-provider:dev` | Every push to `main` | Yes — latest commit |
 | `ghcr.io/o51r15/tpdb-provider:latest` | Tagged releases only | Yes — newest release |
 | `ghcr.io/o51r15/tpdb-provider:1.0` | Tagged releases | Yes — newest 1.0.x |
 | `ghcr.io/o51r15/tpdb-provider:1.0.0` | The release itself | No — pin to this |
