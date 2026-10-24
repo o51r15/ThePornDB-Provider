@@ -456,5 +456,102 @@ class CacheBoundsTests(unittest.TestCase):
         self.assertEqual(tpdb._cache_get(('round', ())), {'data': [1, 2, 3]})
 
 
+class SweepTests(unittest.TestCase):
+    """The smaller correctness items from the audit."""
+
+    def setUp(self):
+        self.app = app.create_app().test_client()
+
+    def test_rating_key_keeps_a_legitimate_zero(self):
+        self.assertEqual(mapping.safe_rating_key(0), '0')
+        self.assertEqual(mapping.to_metadata({'id': 0, 'title': 'T'})['ratingKey'], '0')
+
+    def test_missing_id_yields_an_empty_key_and_is_dropped_from_matches(self):
+        self.assertEqual(mapping.safe_rating_key(None), '')
+        results = [{'title': 'No Id'}, {'id': 'good', 'title': 'Good'}]
+        with mock.patch.object(tpdb, 'search_scenes', return_value=results):
+            body = self.app.post('/scenes/library/metadata/matches',
+                                 json={'type': 1, 'title': 'x'}).get_json()
+        keys = [m['ratingKey'] for m in body['MediaContainer']['Metadata']]
+        self.assertEqual(keys, ['good'])
+
+    def test_performer_order_has_no_gaps(self):
+        roles = mapping._performer_entries(
+            {'performers': [None, {'name': 'A'}, {'no': 'name'}, {'name': 'B'}]})
+        self.assertEqual([r['order'] for r in roles], [1, 2])
+
+    def test_series_excludes_by_equality_not_substring(self):
+        mapping.config.custom_title_enable = True
+        mapping.config.custom_title = '{title} [{studio}/{series}]'
+        try:
+            out = mapping.apply_custom_title(
+                'T', [], 'Brazzers Network',
+                ['Brazzers', 'Brazzers Exxtra', 'Other'])
+            self.assertIn('Brazzers,', out)
+            self.assertEqual(mapping.apply_custom_title('T', [], 12345, ['X']),
+                             'T [12345/X]')
+        finally:
+            mapping.config.custom_title_enable = False
+
+    def test_a_bad_format_string_falls_back_instead_of_raising(self):
+        mapping.config.custom_title_enable = True
+        mapping.config.custom_title = '{title.nope}'
+        try:
+            self.assertEqual(mapping.apply_custom_title('T', [], 'S', []), 'T')
+        finally:
+            mapping.config.custom_title_enable = False
+            mapping.config.custom_title = '{actors} - {title} [{studio}/{series}]'
+
+    def test_parent_does_not_duplicate_the_network(self):
+        site = {'id': 10, 'name': 'S', 'network_id': 20, 'network': {'name': 'Net'}}
+        mapping.config.collection_parent_prefix = 'Parent: '
+        mapping.config.collection_network_prefix = 'Network: '
+        try:
+            names = mapping.collections_for({'site': site})
+            self.assertNotIn('Parent: Net', names)
+            self.assertIn('Network: Net', names)
+        finally:
+            mapping.config.collection_parent_prefix = ''
+            mapping.config.collection_network_prefix = ''
+
+    def test_tag_collections_survive_a_siteless_scene(self):
+        mapping.config.collections_from_tags = True
+        try:
+            self.assertEqual(mapping.collections_for({'tags': [{'name': 'A'}]}), ['A'])
+        finally:
+            mapping.config.collections_from_tags = False
+
+    def test_non_dict_records_degrade(self):
+        self.assertEqual(mapping.to_match([{'id': '1'}], 'q', 0), {})
+        with mock.patch.object(tpdb, 'get_scene', return_value=[{'id': '1'}]):
+            self.assertEqual(self.app.get('/scenes/library/metadata/x').status_code, 404)
+            self.assertEqual(
+                self.app.get('/scenes/library/metadata/x/images').status_code, 404)
+
+    def test_size_zero_probe_returns_no_items(self):
+        results = [{'id': 'r%d' % i, 'title': 'S%d' % i} for i in range(10)]
+        with mock.patch.object(tpdb, 'search_scenes', return_value=results):
+            body = self.app.post(
+                '/scenes/library/metadata/matches?X-Plex-Container-Size=0',
+                json={'type': 1, 'title': 'S'}).get_json()['MediaContainer']
+        self.assertEqual(body['size'], 0)
+        self.assertEqual(body['totalSize'], 10)
+
+    def test_truthy_is_one_definition(self):
+        for value in ('1', 'true', 'True', 'YES', ' on '):
+            self.assertTrue(config_mod.truthy(value), value)
+        for value in ('0', 'false', '', None, 'nope'):
+            self.assertFalse(config_mod.truthy(value), repr(value))
+
+    def test_a_non_numeric_setting_falls_back_instead_of_crashing(self):
+        os.environ['TPDB_TIMEOUT'] = 'not-a-number'
+        try:
+            importlib.reload(config_mod)
+            self.assertEqual(config_mod.config.timeout, 30)
+        finally:
+            os.environ.pop('TPDB_TIMEOUT', None)
+            importlib.reload(config_mod)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

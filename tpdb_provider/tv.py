@@ -14,7 +14,7 @@ import re
 
 from flask import Blueprint, jsonify, request
 
-from .config import config
+from .config import config, truthy as config_truthy
 from . import mapping, tpdb
 
 log = logging.getLogger(__name__)
@@ -286,7 +286,9 @@ def paging():
 
     start = max(0, _int('X-Plex-Container-Start', 0))
     size = _int('X-Plex-Container-Size', config.max_results)
-    return start, max(1, min(size, config.max_page_size))
+    # max(0, ...): Plex sends Size=0 to read totalSize cheaply, and
+    # clamping that to 1 returned a full item it did not ask for.
+    return start, max(0, min(size, config.max_page_size))
 
 
 def _resolve_site(name):
@@ -315,7 +317,11 @@ def _hint_date(hints):
     found = DOTTED_DATE_RE.search(str(hints.get('filename') or ''))
     if found:
         yy, mm, dd = found.groups()
-        if 1 <= int(mm) <= 12 and 1 <= int(dd) <= 31:
+        # Bound the two-digit year. Unbounded, 'Site.98.05.01' became 2098
+        # and a part number in 'Part.11.12.13' became 2011, and the season
+        # match then returned a confident season with no episodes in it.
+        if (1 <= int(mm) <= 12 and 1 <= int(dd) <= 31
+                and 0 <= int(yy) <= 49):
             return '20%s-%s-%s' % (yy, mm, dd)
     return None
 
@@ -338,7 +344,7 @@ def _hint_year(hints):
 
 
 def _hint_wants_children(hints):
-    return str(hints.get('includeChildren') or '') in ('1', 'true', 'True')
+    return config_truthy(hints.get('includeChildren'))
 
 
 @bp.route('', methods=['GET'])
@@ -384,9 +390,12 @@ def matches():
 
 
 def _match_show(hints):
-    title = (hints.get('title') or '').strip()
-    if not title and hints.get('filename'):
-        title = os.path.basename(hints['filename'].rstrip('/'))
+    title = mapping.text_of(mapping.hint(hints, mapping.TITLE_KEYS)).strip()
+    if not title and mapping.hint(hints, mapping.FILE_KEYS):
+        # build_query strips the directory and the extension; doing only
+        # basename() here searched for 'BGB.2019-01-25.mkv', which matches
+        # no site.
+        title = mapping.build_query(hints)
     title = mapping.cleanup_title(title)
     if not title:
         return container([])
@@ -498,7 +507,10 @@ def children_block(items):
 
 
 def _wants_children():
-    return str(request.args.get('includeChildren') or '') in ('1', 'true')
+    # One predicate for both. These used to differ - this one rejected
+    # 'True', which the other accepted - and a season returned without
+    # its children binds nothing at all.
+    return config_truthy(request.args.get('includeChildren'))
 
 
 def _seasons_for(site, site_id):

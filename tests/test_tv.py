@@ -589,5 +589,56 @@ class EpisodePagingCostTests(unittest.TestCase):
         self.assertEqual(children['size'], 300)
 
 
+class SweepTVTests(unittest.TestCase):
+    """TV-side items from the audit sweep."""
+
+    def setUp(self):
+        self.app = create_app().test_client()
+        self.site = {'id': 92, 'name': 'S92'}
+        self.scenes = [{'id': 's%d' % i, 'title': 'S%d' % i,
+                        'date': '2019-05-%02d' % (i + 1),
+                        'site': {'id': 92, 'name': 'S92'}} for i in range(3)]
+
+    def _get(self, url):
+        with mock.patch.object(tpdb, 'get_site', return_value=self.site), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=list(self.scenes)):
+            return self.app.get(url)
+
+    def test_include_children_accepts_every_spelling(self):
+        for value in ('1', 'true', 'True', 'YES', 'on'):
+            item = self._get('/tv/library/metadata/season-92-2019?includeChildren=%s'
+                             % value).get_json()['MediaContainer']['Metadata'][0]
+            self.assertIn('Children', item, value)
+
+    def test_include_children_off_means_off(self):
+        item = self._get('/tv/library/metadata/season-92-2019?includeChildren=0'
+                         ).get_json()['MediaContainer']['Metadata'][0]
+        self.assertNotIn('Children', item)
+
+    def test_size_zero_probe_returns_no_items(self):
+        body = self._get('/tv/library/metadata/show-92/grandchildren'
+                         '?X-Plex-Container-Size=0').get_json()['MediaContainer']
+        self.assertEqual(body['size'], 0)
+        self.assertEqual(body['totalSize'], 3)
+
+    def test_two_digit_year_is_bounded(self):
+        self.assertIsNone(tv._hint_date({'filename': 'Site.98.05.01.scene.mp4'}))
+        self.assertEqual(tv._hint_date({'filename': 'Site.24.06.27.scene.mp4'}),
+                         '2024-06-27')
+
+    def test_show_match_strips_the_extension(self):
+        seen = {}
+
+        def fake(query):
+            seen['q'] = query
+            return []
+
+        with mock.patch.object(tpdb, 'search_sites', side_effect=fake):
+            self.app.post('/tv/library/metadata/matches',
+                          json={'type': 2,
+                                'filename': '/tv/Baby Got Boobs/BGB.2019-01-25.mkv'})
+        self.assertNotIn('.mkv', seen.get('q', ''))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

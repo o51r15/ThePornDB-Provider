@@ -43,8 +43,16 @@ def date_of(scene):
 
 
 def safe_rating_key(value):
-    """Plex allows only ASCII letters, numbers, dashes and underscores."""
-    return _RATING_KEY_SAFE.sub('-', str(value or ''))
+    """Plex allows only ASCII letters, numbers, dashes and underscores.
+
+    str(value or '') destroyed a legitimate id of 0 and turned a missing
+    id into '', which produced guid '...://movie/' and key
+    '/library/metadata/' - a malformed item Plex either rejects or binds
+    to a key that can never be fetched.
+    """
+    if value is None:
+        return ''
+    return _RATING_KEY_SAFE.sub('-', '%s' % value)
 
 
 def guid_for(rating_key, identifier=None):
@@ -157,7 +165,10 @@ def _site_of(scene):
 
 def _performer_entries(scene):
     roles = []
-    for order, performer in enumerate(scene.get('performers') or [], 1):
+    # order is assigned after the filters, not by enumerate over the raw
+    # list - a skipped entry used to consume its number, so a single
+    # surviving performer could come back as order 2 with no order 1.
+    for performer in scene.get('performers') or []:
         if not isinstance(performer, dict):
             continue
         parent = performer.get('parent') if isinstance(performer.get('parent'), dict) else None
@@ -165,7 +176,8 @@ def _performer_entries(scene):
         thumb = (parent or {}).get('face') or performer.get('face')
         if not name:
             continue
-        entry = {'tag': name, 'role': performer.get('name') or name, 'order': order}
+        entry = {'tag': name, 'role': performer.get('name') or name,
+                 'order': len(roles) + 1}
         if thumb:
             entry['thumb'] = thumb
         roles.append(entry)
@@ -186,9 +198,6 @@ def _image_url(scene, group, *sizes):
 def collections_for(scene):
     """Site / parent / network / tag collections, as the old agent built them."""
     site = _site_of(scene)
-    if not site:
-        return []
-
     names = []
     site_name = site.get('name')
     site_id = site.get('id')
@@ -207,7 +216,10 @@ def collections_for(scene):
         if name and name != site_name:
             names.append(prefix + name)
 
-    resolve('parent', site.get('parent_id') or site.get('network_id'),
+    # No network_id fallback here: with distinct prefixes it emitted the
+    # network as both 'Parent: X' and 'Network: X', and cost a second
+    # get_site on every metadata request.
+    resolve('parent', site.get('parent_id'),
             config.collection_parent_prefix, config.collections_from_parents)
     resolve('network', site.get('network_id'),
             config.collection_network_prefix, config.collections_from_networks)
@@ -227,9 +239,11 @@ def collections_for(scene):
 
 def genres_for(scene):
     genres = []
+    seen = set()
     for tag in scene.get('tags') or []:
         name = tag.get('name') if isinstance(tag, dict) else tag
-        if name and name not in genres:
+        if name and name not in seen:
+            seen.add(name)
             genres.append(name)
     return genres
 
@@ -241,18 +255,22 @@ def apply_custom_title(title, roles, studio, collections):
         'title': title or '',
         'actors': ', '.join(_ascii(r['tag']) for r in roles),
         'studio': _ascii(studio),
+        # 'c not in studio' was a substring test, so a collection whose
+        # name appeared inside the studio name silently vanished.
         'series': ', '.join(sorted({_ascii(c) for c in collections
-                                    if not studio or c not in studio})),
+                                    if _ascii(c) != _ascii(studio)})),
     }
     try:
         return config.custom_title.format(**data)
-    except (KeyError, IndexError, ValueError) as exc:
+    except Exception as exc:  # a bad format string must not take the request
         log.warning('custom title format failed: %s', exc)
         return title
 
 
 def to_match(scene, query, index, identifier=None):
     """A lightweight Metadata object for POST /library/metadata/matches."""
+    if not isinstance(scene, dict):
+        return {}
     rating_key = safe_rating_key(scene.get('id'))
     site = _site_of(scene)
     site_name = site.get('name') or ''
@@ -296,7 +314,7 @@ def score_for(scene, query, index, title, site_name, date):
         try:
             formatted = config.custom_score.format(
                 title=title, site=site_name, date=date)
-        except (KeyError, IndexError, ValueError):
+        except Exception:  # see apply_custom_title
             formatted = title
         distance = levenshtein(' '.join(query.split()).lower(),
                                ' '.join(formatted.split()).lower())

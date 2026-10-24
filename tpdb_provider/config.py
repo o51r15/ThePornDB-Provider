@@ -4,13 +4,25 @@ Everything is read from environment variables because the new metadata
 provider API has no Plex-side preferences UI.
 """
 import os
+import sys
+
+
+def truthy(value):
+    """One definition of true, for env flags and query parameters alike.
+
+    tv.py had two: one accepting ('1','true') and one accepting
+    ('1','true','True'), so includeChildren=True was honoured in one place
+    and silently ignored in the other - and a season returned without its
+    children binds nothing.
+    """
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def _bool(name, default=False):
     raw = os.environ.get(name)
     if raw is None:
         return default
-    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+    return truthy(raw)
 
 
 def _str(name, default=''):
@@ -18,18 +30,36 @@ def _str(name, default=''):
     return default if val is None else val
 
 
+def _int(name, default):
+    """An int setting, falling back instead of killing the process.
+
+    These were int(_str(...)) evaluated at class-definition time, so one
+    non-numeric value crashed the container at import with a bare
+    ValueError and no indication of which variable was at fault.
+    """
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == '':
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        sys.stderr.write(
+            '%s=%r is not a number; using %d\n' % (name, raw, default))
+        return default
+
+
 class Config(object):
     # --- upstream ---
     api_base = _str('TPDB_API_BASE', 'https://api.theporndb.net')
     api_key = _str('TPDB_API_KEY')
-    timeout = int(_str('TPDB_TIMEOUT', '30'))
-    retries = int(_str('TPDB_RETRIES', '3'))
-    cache_ttl = int(_str('TPDB_CACHE_TTL', '3600'))
+    timeout = _int('TPDB_TIMEOUT', 30)
+    retries = _int('TPDB_RETRIES', 3)
+    cache_ttl = _int('TPDB_CACHE_TTL', 3600)
     # Hard ceiling on cached upstream responses. A site page holds up to
     # TPDB_SITE_PAGE_SIZE scenes, so this bounds memory; without a cap the
     # cache only ever dropped an entry when that exact key was requested
     # again after expiry, and grew for the life of the process.
-    cache_max_entries = int(_str('TPDB_CACHE_MAX_ENTRIES', '1000'))
+    cache_max_entries = _int('TPDB_CACHE_MAX_ENTRIES', 1000)
 
     # --- provider identity ---
     identifier = _str('TPDB_IDENTIFIER', 'tv.plex.agents.custom.theporndb.scenes')
@@ -44,10 +74,13 @@ class Config(object):
     match_by_filename = _bool('TPDB_MATCH_BY_FILENAME', True)
     strip_path = _bool('TPDB_STRIP_PATH', True)
     cleanup_enable = _bool('TPDB_CLEANUP_ENABLE', False)
+    # Comma-separated, inherited from the bundle's pref format. A pattern
+    # containing a comma - any {2,} quantifier - is split and dropped with
+    # a warning; use a bounded {2,8} form instead.
     cleanup_regex = _str('TPDB_CLEANUP_REGEX')
     cleanup_replace = _str('TPDB_CLEANUP_REPLACE')
-    max_results = int(_str('TPDB_MAX_RESULTS', '20'))
-    max_page_size = int(_str('TPDB_MAX_PAGE_SIZE', '500'))
+    max_results = _int('TPDB_MAX_RESULTS', 20)
+    max_page_size = _int('TPDB_MAX_PAGE_SIZE', 500)
 
     # --- metadata shaping ---
     content_rating = _str('TPDB_CONTENT_RATING', 'XXX')
@@ -77,9 +110,9 @@ class Config(object):
     # --- tv provider (site = show, year = season, scene = episode) ---
     tv_identifier = _str('TPDB_TV_IDENTIFIER', 'tv.plex.agents.custom.theporndb.tv')
     tv_title = _str('TPDB_TV_TITLE', 'ThePornDB Scenes (TV)')
-    site_page_size = int(_str('TPDB_SITE_PAGE_SIZE', '100'))
-    max_site_pages = int(_str('TPDB_MAX_SITE_PAGES', '60'))
-    site_fetch_workers = int(_str('TPDB_SITE_FETCH_WORKERS', '8'))
+    site_page_size = _int('TPDB_SITE_PAGE_SIZE', 100)
+    max_site_pages = _int('TPDB_MAX_SITE_PAGES', 60)
+    site_fetch_workers = _int('TPDB_SITE_FETCH_WORKERS', 8)
 
     # --- service ---
     log_level = _str('TPDB_LOG_LEVEL', 'INFO')

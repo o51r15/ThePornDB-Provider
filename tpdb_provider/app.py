@@ -41,7 +41,9 @@ def paging():
 
     start = max(0, _int('X-Plex-Container-Start', 0))
     size = _int('X-Plex-Container-Size', config.max_results)
-    return start, max(1, min(size, config.max_page_size))
+    # max(0, ...): Plex sends Size=0 to read totalSize cheaply, and
+    # clamping that to 1 returned a full item it did not ask for.
+    return start, max(0, min(size, config.max_page_size))
 
 
 def make_provider(name, identifier, title, kind):
@@ -111,6 +113,8 @@ def make_provider(name, identifier, title, kind):
 
         items = [mapping.to_match(scene, query, idx, identifier)
                  for idx, scene in enumerate(results) if isinstance(scene, dict)]
+        # a record with no usable id yields no usable key, guid or link
+        items = [i for i in items if i.get('ratingKey')]
         items.sort(key=lambda i: i.get('score', 0), reverse=True)
 
         # Truncate to the automatic-match cap BEFORE paging, and report the
@@ -127,14 +131,14 @@ def make_provider(name, identifier, title, kind):
     def metadata(rating_key):
         scene = tpdb.get_scene(rating_key, kind=kind,
                                add_to_collection=config.save_to_collection)
-        if not scene:
+        if not isinstance(scene, dict) or not scene:
             return jsonify({'error': 'not found'}), 404
         return box([mapping.to_metadata(scene, identifier)])
 
     @bp.route('/library/metadata/<rating_key>/images', methods=['GET'])
     def images(rating_key):
         scene = tpdb.get_scene(rating_key, kind=kind)
-        if not scene:
+        if not isinstance(scene, dict) or not scene:
             return jsonify({'error': 'not found'}), 404
         item = mapping.to_metadata(scene, identifier)
         return jsonify({'MediaContainer': {
