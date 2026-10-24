@@ -10,6 +10,7 @@ os.environ.update({
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from tpdb_provider import create_app
+from tpdb_provider import app
 from tpdb_provider import tpdb, mapping
 
 SCENE = {
@@ -283,6 +284,61 @@ class MoviesProviderTest(unittest.TestCase):
         self.assertEqual(providers.get('movies'), '/movies')
         self.assertEqual(providers.get('tv'), '/tv')
         self.assertNotIn('jav', providers)
+
+
+class MalformedUpstreamTests(unittest.TestCase):
+    """One bad record must not take down the whole response.
+
+    mapping runs inside a comprehension over every search result, so an
+    unguarded type error discarded the entire match rather than one
+    candidate. Same for the metadata route.
+    """
+
+    def test_non_string_date_does_not_raise(self):
+        for bad in (1680652800, {'y': 2023}, ['2019-01-01'], 20190405):
+            scene = {'id': '1', 'title': 'T', 'date': bad}
+            item = mapping.to_match(scene, 'q', 0)
+            self.assertEqual(item['ratingKey'], '1')
+            self.assertNotIn('originallyAvailableAt', item)
+            self.assertNotIn('year', item)
+            meta = mapping.to_metadata(scene)
+            self.assertNotIn('originallyAvailableAt', meta)
+
+    def test_good_date_still_maps(self):
+        item = mapping.to_match({'id': '1', 'title': 'T',
+                                 'date': '2019-01-25'}, 'q', 0)
+        self.assertEqual(item['originallyAvailableAt'], '2019-01-25')
+        self.assertEqual(item['year'], 2019)
+
+    def test_extract_id_tolerates_non_strings(self):
+        for bad in (12345, ['a'], {'k': 'v'}, None):
+            self.assertIsNone(mapping.extract_id(bad))
+        self.assertEqual(
+            mapping.extract_id('Scene [TPDBID=abc-123].mkv'), 'abc-123')
+
+    def test_build_query_tolerates_non_string_filename(self):
+        for bad in (12345, ['/a/b.mp4'], {'p': 'x'}):
+            mapping.build_query({'filename': bad})      # must not raise
+        self.assertEqual(
+            mapping.build_query({'filename': '/x/Site - Title.mkv'}),
+            'Site - Title')
+
+    def test_match_survives_one_bad_record_among_good_ones(self):
+        results = [
+            {'id': 'a', 'title': 'Good A', 'date': '2019-01-01'},
+            {'id': 'b', 'title': 'Bad', 'date': 20190405},
+            {'id': 'c', 'title': 'Good C', 'date': '2019-02-02'},
+        ]
+        with mock.patch.object(tpdb, 'search_scenes', return_value=results):
+            resp = self.app.post('/scenes/library/metadata/matches',
+                                 json={'type': 1, 'title': 'Good'})
+        self.assertEqual(resp.status_code, 200)
+        keys = [m['ratingKey']
+                for m in resp.get_json()['MediaContainer']['Metadata']]
+        self.assertEqual(sorted(keys), ['a', 'b', 'c'])
+
+    def setUp(self):
+        self.app = app.create_app().test_client()
 
 
 if __name__ == '__main__':

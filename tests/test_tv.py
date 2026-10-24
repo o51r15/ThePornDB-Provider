@@ -348,5 +348,45 @@ class ChildrenShapeTest(unittest.TestCase):
                 self.assertNotIn('":[{"Children":[', raw, url)
 
 
+class MalformedDateTests(unittest.TestCase):
+    """A single non-string date must not 500 an entire show."""
+
+    def setUp(self):
+        self.app = create_app().test_client()
+        self.site = {'id': 92, 'name': 'S92'}
+        self.good = [{'id': 's%d' % i, 'title': 'S%d' % i,
+                      'date': '2019-05-%02d' % (i + 1),
+                      'site': {'id': 92, 'name': 'S92'}} for i in range(3)]
+
+    def _serve(self, scenes, url):
+        with mock.patch.object(tpdb, 'get_site', return_value=self.site), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=scenes):
+            return self.app.get(url)
+
+    def test_bad_date_does_not_break_the_season(self):
+        for bad in (20190405, {'y': 2019}, ['2019-05-01']):
+            scenes = self.good + [{'id': 'bad', 'title': 'B', 'date': bad}]
+            for url in ('/tv/library/metadata/season-92-2019/children',
+                        '/tv/library/metadata/show-92?includeChildren=1',
+                        '/tv/library/metadata/show-92/grandchildren'):
+                resp = self._serve(scenes, url)
+                self.assertEqual(resp.status_code, 200, '%r %s' % (bad, url))
+
+    def test_the_good_scenes_still_come_back(self):
+        scenes = self.good + [{'id': 'bad', 'title': 'B', 'date': 20190405}]
+        resp = self._serve(scenes, '/tv/library/metadata/season-92-2019/children')
+        keys = [m['ratingKey']
+                for m in resp.get_json()['MediaContainer']['Metadata']]
+        for scene in self.good:
+            self.assertIn('ep-%s' % scene['id'], keys)
+
+    def test_episodes_for_does_not_mutate_the_caller_list(self):
+        scenes = [{'id': 'b', 'date': '2019-05-02', 'site': {'id': 92}},
+                  {'id': 'a', 'date': '2019-05-01', 'site': {'id': 92}}]
+        before = [s['id'] for s in scenes]
+        self._serve(scenes, '/tv/library/metadata/show-92/grandchildren')
+        self.assertEqual([s['id'] for s in scenes], before)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

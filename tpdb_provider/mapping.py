@@ -20,6 +20,28 @@ ID_REGEXES = [
 _RATING_KEY_SAFE = re.compile(r'[^A-Za-z0-9_-]')
 
 
+def text_of(value):
+    """Coerce an upstream or hint value to a string.
+
+    Nothing guarantees the type of a TPDB field or of a Plex hint - both
+    have arrived as ints. `value or ''` only guards None, so a numeric
+    field reached a slice or a regex and raised, and because mapping runs
+    inside a comprehension over every search result, one bad record threw
+    away the whole response instead of one candidate.
+    """
+    if isinstance(value, str):
+        return value
+    if value is None:
+        return ''
+    return '%s' % value
+
+
+def date_of(scene):
+    """A scene's date as a string, or '' - see text_of."""
+    value = scene.get('date') if hasattr(scene, 'get') else None
+    return value if isinstance(value, str) else ''
+
+
 def safe_rating_key(value):
     """Plex allows only ASCII letters, numbers, dashes and underscores."""
     return _RATING_KEY_SAFE.sub('-', str(value or ''))
@@ -70,7 +92,7 @@ def cleanup_title(text):
 
 def extract_id(text):
     for regex in ID_REGEXES:
-        found = regex.search(text or '')
+        found = regex.search(text_of(text))
         if found:
             return found.group('id')
     return None
@@ -102,7 +124,7 @@ def hint(hints, keys):
 def build_query(hints):
     """Work out what to search for, from a match request's hints."""
     title = ('%s' % hint(hints, TITLE_KEYS)).strip()
-    filename = hint(hints, FILE_KEYS) or ''
+    filename = text_of(hint(hints, FILE_KEYS))
 
     if filename and (config.match_by_filename or not title):
         candidate = filename
@@ -235,7 +257,7 @@ def to_match(scene, query, index, identifier=None):
     site = _site_of(scene)
     site_name = site.get('name') or ''
     title = scene.get('title') or scene.get('name') or ''
-    date = scene.get('date') or ''
+    date = date_of(scene)
     year = None
     if date[:4].isdigit():
         year = int(date[:4])
@@ -287,7 +309,7 @@ def to_metadata(scene, identifier=None):
     rating_key = safe_rating_key(scene.get('id'))
     site = _site_of(scene)
     studio = site.get('name') or ''
-    date = scene.get('date') or ''
+    date = date_of(scene)
 
     roles = _performer_entries(scene)
     genres = genres_for(scene)

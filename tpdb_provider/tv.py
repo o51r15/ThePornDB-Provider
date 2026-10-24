@@ -66,7 +66,7 @@ def key_path(rating_key):
 # ------------------------------------------------------------------- helpers
 
 def year_of(scene):
-    date = scene.get('date') or ''
+    date = mapping.date_of(scene)
     return date[:4] if date[:4].isdigit() else None
 
 
@@ -77,7 +77,7 @@ def episode_index(scene):
     ordering key. Unique within a site-year except for same-day releases on
     the same site, which stay distinct by GUID.
     """
-    found = DATE_RE.search(scene.get('date') or '')
+    found = DATE_RE.search(mapping.date_of(scene))
     if not found:
         return None
     return int(found.group(2)) * 100 + int(found.group(3))
@@ -172,7 +172,7 @@ def scene_to_episode(scene, site=None):
     site_id = site.get('id') or scene.get('site_id')
     site_name = site.get('name') or ''
     year = year_of(scene)
-    date = scene.get('date') or ''
+    date = mapping.date_of(scene)
 
     item = {
         'ratingKey': rating_key,
@@ -488,7 +488,9 @@ def _episodes_for(site, site_id, year=None):
     scenes = tpdb.scenes_for_site(site_id)
     if year is not None:
         scenes = [s for s in scenes if year_of(s) == str(year)]
-    scenes.sort(key=lambda s: s.get('date') or '')
+    # sorted(), not .sort() - _episodes_for must not mutate the caller's
+    # list, which would corrupt any cached copy of it.
+    scenes = sorted(scenes, key=mapping.date_of)
     return [scene_to_episode(s, site) for s in scenes]
 
 
