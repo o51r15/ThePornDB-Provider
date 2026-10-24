@@ -34,7 +34,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # :dev on every branch build; :latest and :vX.Y.Z only for release tags
+      # :dev on every branch build; :latest, :MAJOR.MINOR and :MAJOR.MINOR.PATCH
+      # on release tags. metadata-action strips the leading v.
       - id: meta
         uses: docker/metadata-action@v5
         with:

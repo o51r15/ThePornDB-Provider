@@ -179,13 +179,18 @@ recorded from the failure it caused.
 
 ## Docker Images
 
-| Tag | When it's built |
-|---|---|
-| `ghcr.io/o51r15/tpdb-provider:dev` | Every push to `main` or `provider` |
-| `ghcr.io/o51r15/tpdb-provider:latest` | Tagged releases only |
-| `ghcr.io/o51r15/tpdb-provider:vX.Y.Z` | The release itself |
+| Tag | When it's built | Moves? |
+|---|---|---|
+| `ghcr.io/o51r15/tpdb-provider:dev` | Every push to `main` or `provider` | Yes — latest commit |
+| `ghcr.io/o51r15/tpdb-provider:latest` | Tagged releases only | Yes — newest release |
+| `ghcr.io/o51r15/tpdb-provider:1.0` | Tagged releases | Yes — newest 1.0.x |
+| `ghcr.io/o51r15/tpdb-provider:1.0.0` | The release itself | No — pin to this |
 
-Cut a release with `git tag v1.0.0 && git push fork --tags`.
+Note the image tags carry **no `v` prefix** even though the git tags do:
+`git tag v1.0.0` produces `:1.0.0`. Pin to the exact version in production;
+`:dev` is the development stream and will break.
+
+Cut a release with `git tag -a v1.0.0 -m v1.0.0 && git push fork v1.0.0`.
 
 ## Tests
 
