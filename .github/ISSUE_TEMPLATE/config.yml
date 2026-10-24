@@ -1,0 +1,14 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Configuration reference
+    url: https://github.com/o51r15/ThePornDB-Provider/wiki/Configuration
+    about: Every environment variable, with the bundle preference it replaces.
+  - name: TV provider and renaming
+    url: https://github.com/o51r15/ThePornDB-Provider/wiki/TV-Provider-and-Renaming
+    about: Why /tv needs renamed files, and how to use the bulk renamer.
+  - name: Troubleshooting
+    url: https://github.com/o51r15/ThePornDB-Provider/wiki/Troubleshooting
+    about: Nothing matching, agent missing from the dropdown, stale local:// stubs.
+  - name: ThePornDB
+    url: https://theporndb.net/
+    about: Problems with the metadata itself, or with your API token.

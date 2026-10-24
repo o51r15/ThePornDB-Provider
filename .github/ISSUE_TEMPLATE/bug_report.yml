@@ -1,0 +1,71 @@
+name: Bug report
+description: Something is not matching, not loading, or returning the wrong metadata
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: a metadata **refresh never re-matches**. Items that failed
+        to match are stored as `local://` stubs permanently. Use **Fix Match** on
+        a single item, or rescan a file Plex has not seen, before reporting that
+        matching is broken.
+  - type: input
+    id: pms
+    attributes:
+      label: Plex Media Server version
+      placeholder: "1.43.4.10903"
+    validations:
+      required: true
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider path
+      options: ["/scenes", "/movies", "/jav", "/tv", "more than one"]
+    validations:
+      required: true
+  - type: input
+    id: image
+    attributes:
+      label: Image tag
+      placeholder: "ghcr.io/o51r15/tpdb-provider:dev or :v1.0.0"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: filename
+    attributes:
+      label: An example filename
+      description: >
+        The exact name of a file that misbehaves, including its folder.
+        Matching is driven almost entirely by the filename, so this is usually
+        the single most useful detail.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: provider_log
+    attributes:
+      label: Provider log
+      description: "`docker logs tpdb-provider` around the failure. Set TPDB_LOG_LEVEL=DEBUG first if you can — it logs the hints Plex sent."
+      render: shell
+  - type: textarea
+    id: plex_log
+    attributes:
+      label: Plex log
+      description: >
+        The matching lines from Plex Media Server.log. Errors naming
+        MetadataItemResponse or "Primary provider ... failed to return a result"
+        are the ones that matter.
+      render: shell
+  - type: textarea
+    id: selftest
+    attributes:
+      label: Output of /selftest
+      description: "`curl 'http://your-server:8080/scenes/selftest?q=some+title'` — confirms whether the upstream contract is intact. Redact nothing; it contains no token."
+      render: shell
