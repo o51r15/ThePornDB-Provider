@@ -1,4 +1,4 @@
-import os, sys, unittest
+import importlib, os, sys, unittest
 from unittest import mock
 
 os.environ.update({'TPDB_API_KEY': 'k', 'TPDB_CACHE_TTL': '0'})
@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 
 from tpdb_provider import create_app
 from tpdb_provider import tpdb, tv
+from tpdb_provider import config as config_mod
 
 SITE = {'id': 92, 'name': 'Baby Got Boobs', 'short_name': 'babygotboobs',
         'description': 'Big tits.', 'poster': 'http://img/site-poster.jpg',
@@ -490,6 +491,102 @@ class UpstreamFailureTests(unittest.TestCase):
     def test_show_children_already_404ed_and_still_do(self):
         self.assertEqual(
             self._get('/tv/library/metadata/show-92/children').status_code, 404)
+
+
+class SiteWalkCachingTests(unittest.TestCase):
+    """Serving a show must not re-walk the site for every season."""
+
+    def setUp(self):
+        os.environ['TPDB_CACHE_TTL'] = '3600'
+        importlib.reload(config_mod)
+        importlib.reload(tpdb)
+        importlib.reload(tv)
+        self.app = create_app().test_client()
+        self.scenes = [
+            {'id': 's%03d' % i, 'title': 'S%d' % i,
+             'date': '%d-05-%02d' % (2019 + (i % 3), (i % 28) + 1),
+             'site': {'id': 92, 'name': 'S92'}} for i in range(60)]
+        self.pages = 0
+
+    def tearDown(self):
+        os.environ['TPDB_CACHE_TTL'] = '0'
+        importlib.reload(config_mod)
+        importlib.reload(tpdb)
+        importlib.reload(tv)
+
+    def _get_json(self, path, params=None):
+        if path == '/scenes' and params and 'site_id' in params:
+            self.pages += 1
+            return {'data': self.scenes, 'meta': {'last_page': 1}}
+        return None
+
+    def test_show_and_seasons_walk_the_site_once(self):
+        with mock.patch.object(tpdb, 'get_json', side_effect=self._get_json), \
+             mock.patch.object(tpdb, 'get_site', return_value={'id': 92, 'name': 'S92'}):
+            self.app.get('/tv/library/metadata/show-92?includeChildren=1')
+            for year in (2019, 2020, 2021):
+                self.app.get('/tv/library/metadata/season-92-%d?includeChildren=1' % year)
+        self.assertEqual(self.pages, 1,
+                         'the site was walked %d times, expected 1' % self.pages)
+
+    def test_the_cached_list_survives_a_mutating_caller(self):
+        with mock.patch.object(tpdb, 'get_json', side_effect=self._get_json):
+            first = tpdb.scenes_for_site(92)
+            first.reverse()
+            del first[0]
+            second = tpdb.scenes_for_site(92)
+        self.assertEqual(len(second), len(self.scenes))
+        self.assertEqual(second[0]['id'], self.scenes[0]['id'])
+
+
+class EpisodePagingCostTests(unittest.TestCase):
+    """A children page must map only the slice it returns."""
+
+    def setUp(self):
+        self.app = create_app().test_client()
+        self.scenes = [
+            {'id': 's%03d' % i, 'title': 'S%d' % i, 'date': '2019-05-%02d' % ((i % 28) + 1),
+             'site': {'id': 92, 'name': 'S92'}} for i in range(300)]
+
+    def test_only_the_page_is_built(self):
+        built = []
+        real = tv.scene_to_episode
+
+        def counting(scene, site=None):
+            built.append(scene['id'])
+            return real(scene, site)
+
+        with mock.patch.object(tpdb, 'get_site', return_value={'id': 92, 'name': 'S92'}), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=list(self.scenes)), \
+             mock.patch.object(tv, 'scene_to_episode', side_effect=counting):
+            resp = self.app.get(
+                '/tv/library/metadata/show-92/grandchildren'
+                '?X-Plex-Container-Start=0&X-Plex-Container-Size=20')
+        body = resp.get_json()['MediaContainer']
+        self.assertEqual(body['size'], 20)
+        self.assertEqual(body['totalSize'], 300)
+        self.assertEqual(len(built), 20,
+                         'built %d episodes to return 20' % len(built))
+
+    def test_paging_still_covers_everything_exactly_once(self):
+        seen = []
+        with mock.patch.object(tpdb, 'get_site', return_value={'id': 92, 'name': 'S92'}), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=list(self.scenes)):
+            for start in range(0, 300, 50):
+                body = self.app.get(
+                    '/tv/library/metadata/show-92/grandchildren'
+                    '?X-Plex-Container-Start=%d&X-Plex-Container-Size=50' % start
+                ).get_json()['MediaContainer']
+                seen += [m['ratingKey'] for m in body['Metadata']]
+        self.assertEqual(len(seen), 300)
+        self.assertEqual(len(set(seen)), 300)
+
+    def test_include_children_still_returns_every_episode(self):
+        with mock.patch.object(tpdb, 'get_site', return_value={'id': 92, 'name': 'S92'}), \
+             mock.patch.object(tpdb, 'scenes_for_site', return_value=list(self.scenes)):
+            resp = self.app.get('/tv/library/metadata/season-92-2019?includeChildren=1')
+        children = resp.get_json()['MediaContainer']['Metadata'][0]['Children']
+        self.assertEqual(children['size'], 300)
 
 
 if __name__ == '__main__':

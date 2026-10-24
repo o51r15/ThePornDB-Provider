@@ -203,6 +203,17 @@ def scenes_for_site(site_id, max_pages=None):
     if max_pages is None:
         max_pages = config.max_site_pages
 
+    # Serving one show means _seasons_for and _episodes_for both walk the
+    # site, once for the show and once per season - four full walks for a
+    # three-season show, plus one per children page. The per-page cache
+    # below does not help at TPDB_CACHE_TTL=0 and still costs a thread pool
+    # and 41 lookups per walk, so memoize the assembled list too.
+    memo_key = ('scenes_for_site', site_id, max_pages)
+    memo = _cache_get(memo_key)
+    if memo is not None:
+        # a copy, so a caller mutating the result cannot corrupt the cache
+        return list(memo)
+
     per_page = config.site_page_size
     first = get_json('/scenes', {'site_id': site_id, 'page': 1,
                                  'per_page': per_page})
@@ -218,7 +229,8 @@ def scenes_for_site(site_id, max_pages=None):
         last = 1
     last = min(last, max_pages)
     if last <= 1:
-        return scenes
+        _cache_put(memo_key, scenes)
+        return list(scenes)
 
     pages = list(range(2, last + 1))
     bodies = {}
@@ -246,4 +258,5 @@ def scenes_for_site(site_id, max_pages=None):
         scenes.extend(s for s in (body.get('data') or [])
                       if isinstance(s, dict))
 
-    return scenes
+    _cache_put(memo_key, scenes)
+    return list(scenes)

@@ -511,14 +511,32 @@ def _seasons_for(site, site_id):
     return [make_season(site, y, counts[y]) for y in sorted(counts)]
 
 
-def _episodes_for(site, site_id, year=None):
+def _episode_scenes(site_id, year=None):
+    """The scenes an episode list is built from, filtered and ordered.
+
+    Separate from the mapping so a paged route can slice first.
+    scene_to_episode resolves images, genres and performers per scene, so
+    building every episode of a 4000-scene site to return twenty of them
+    was almost all of the CPU a children page spent.
+    """
     scenes = tpdb.scenes_for_site(site_id)
     if year is not None:
         scenes = [s for s in scenes if year_of(s) == str(year)]
-    # sorted(), not .sort() - _episodes_for must not mutate the caller's
-    # list, which would corrupt any cached copy of it.
-    scenes = sorted(scenes, key=mapping.date_of)
-    return [scene_to_episode(s, site) for s in scenes]
+    # sorted(), not .sort() - this must not mutate the cached list.
+    return sorted(scenes, key=mapping.date_of)
+
+
+def _episodes_for(site, site_id, year=None):
+    """Every episode. Used where Plex needs them all inline, as in the
+    includeChildren responses it binds files from."""
+    return [scene_to_episode(s, site) for s in _episode_scenes(site_id, year)]
+
+
+def _episode_page(site, site_id, start, size, year=None):
+    """One page of episodes, and the true total. Maps only the slice."""
+    scenes = _episode_scenes(site_id, year)
+    page = [scene_to_episode(s, site) for s in scenes[start:start + size]]
+    return page, len(scenes)
 
 
 @bp.route('/library/metadata/<rating_key>', methods=['GET'])
@@ -577,9 +595,8 @@ def children(rating_key):
             # with an empty container - which Plex takes as authoritative
             # and stops, instead of retrying as it would on an error.
             return jsonify({'error': 'not found'}), 404
-        episodes = _episodes_for(site, ident, year)
-        return container(episodes[start:start + size], offset=start,
-                         total=len(episodes))
+        episodes, total = _episode_page(site, ident, start, size, year)
+        return container(episodes, offset=start, total=total)
 
     if kind is None:
         # An unparseable key is not an empty collection. Answering 200 with
@@ -608,6 +625,5 @@ def grandchildren(rating_key):
     site = tpdb.get_site(ident)
     if not site:
         return jsonify({'error': 'not found'}), 404
-    episodes = _episodes_for(site, ident)
-    return container(episodes[start:start + size], offset=start,
-                     total=len(episodes))
+    episodes, total = _episode_page(site, ident, start, size)
+    return container(episodes, offset=start, total=total)
